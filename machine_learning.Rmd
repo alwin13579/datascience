@@ -1,0 +1,131 @@
+---
+title: "Practical Maching Learning Prediction Assignment"
+author: "Alwin Ngai"
+date: "18/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+In this project, we use data collected from accelerometers on various places of the participants to predict the manner in which they did the exercise, ie. “classe” variable in the training set.
+
+### Initialise
+
+First we load the Caret package and set up the environment. PMLTrain  is the main data set while PMLTest contains 20 samples for final submission.
+
+```{r load_data}
+## Setup
+library(caret)
+set.seed(123456)
+
+## Read data
+setwd("D:\\TEMP\\")
+pmlTrain <- read.csv("pml-training.csv")
+pmlTest <- read.csv("pml-testing.csv")
+```
+
+### Pre-Processing
+
+The datasets contains far too much irrelevant data so we do some pre-processing ahead of time.
+
+```{r clean_data}
+# Remove first few columns that are irrelevant (ie. timestamp, etc.)
+pmlTrain2 <- pmlTrain[, -(1:7)]
+
+# Remove columns with N/A's
+pmlTrain3 <- pmlTrain2[ , colSums(is.na(pmlTrain2)) == 0]
+
+# Remove columns with empty values
+pmlTrain4 <- pmlTrain3[, colSums(pmlTrain3 == "") == 0]
+
+# Remove columns that have very low variance
+zeroVar = nearZeroVar(pmlTrain4[sapply(pmlTrain4, is.numeric)], saveMetrics = TRUE)
+pmlTrain5 <- pmlTrain4[, zeroVar[, "nzv"] == 0]
+```
+
+Variables that are highly correlated to each other have the risk of increasing bias. Excluding them may reduce the predictive power of the model but as we have quite a large dataset available, the sacrifice should be minimal.
+
+```{r rem_corr}
+# Remove columns that are highly correlated
+corrMatrix <- cor(na.omit(pmlTrain5[sapply(pmlTrain5, is.numeric)]))
+removeCols = findCorrelation(corrMatrix, cutoff = .90)
+pmlTrain6 <- pmlTrain5[, -removeCols]
+
+# Convert Classe to factor variable for ease of processing
+pmlTrain6$classe <- as.factor(pmlTrain6$classe)
+
+dim(pmlTrain6)
+```
+
+After pre-processing, our data set contains 19622 rows and 46 variables (including "classe") in total.
+
+### Partitioning
+
+The data set is partitioned into a training set (70%) and a test set (30%) to be used for model building and testing.
+
+```{r split}
+# Split into Train & Test sets
+inTrain <- createDataPartition(pmlTrain6$classe, p=0.70, list=FALSE)
+trainData <- pmlTrain6[inTrain,]
+testData <- pmlTrain6[-inTrain,]
+```
+
+### Cross Validation
+
+Cross validation is a technique for improving accuracy of the model by reducing bias. Several methods exist for cross validation but for purpose of model building we will be using k-fold cross validation with k=5.
+
+```{r cross_validate}
+fitControl = trainControl(method = "cv", number = 5)
+```
+
+### Decision Tree
+
+A decision tree provides a clear and logical way to classify the output based on a number of inputs. Since we are trying to classify the manner of exercise performed by the participant, this is the logical place to start.
+
+``` {r rpart}
+modelRPart <- train(classe ~ ., data = trainData, method = "rpart", trControl = fitControl)
+predRPart <- predict(modelRPart, testData)
+confusionMatrix(predRPart, testData$classe)
+```
+
+Unfortunately the out of sample accuracy of our decision tree is only 49.5% which is quite poor.
+
+### Boosting
+
+Next we take a different approach and apply gradient boosting to our training data. Boosting takes a collection of weak predictors and combines in an iterative process to see if some combination will give better results. The weak predictors are then given different weightings and combined to create a much stronger predictor.
+
+``` {r boosting, results='hide'}
+modelGBM <- train(classe ~ ., data = trainData, method = "gbm", trControl = fitControl)
+predGBM <- predict(modelGBM, testData)
+```
+
+``` {r boosting2}
+confusionMatrix(predGBM, testData$classe)
+```
+
+With gradient boosting, the accuracy of our model is dramatically improved to 95.9%. This is already very high but we want to see if we can do better.
+
+### Random Forest
+
+Going back to the concept of decision trees, we want to see if we can improve the accuracy. Random forests constructs a large number of decision trees by bootlegging the training set and outputs the class that has majority vote out of all the constructed trees. Random forests correct for decision trees' habit of overfitting and generally gives a more accurate result.
+
+``` {r random_forest}
+modelRF <- train(classe ~ ., data = trainData, method = "rf", ntree = 100, trControl = fitControl)
+predRF <- predict(modelRF, testData)
+confusionMatrix(predRF, testData$classe)
+```
+
+Our random forest model returns an extremely high out of sample accuracy of 99.4%. With such high accuracy, it is unlikely that other models (or combination of models) will be significantly better so we will declare it the winner.
+
+### Final Prediction
+
+Here we use the random forest model created above to generate predictions for the 20 submission samples.
+
+```{r predict}
+predFinal <- predict(modelRF, pmlTest)
+predFinal
+```

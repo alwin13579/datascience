@@ -1,0 +1,52 @@
+---
+title: "Traffic Cameras in New South Wales, Australia"
+author: "Alwin Ngai"
+date: "25/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r initialise, message = FALSE, warning = FALSE}
+# Initialise
+
+library(dplyr)
+library(leaflet)
+
+# The download master data from Open Data Soft at the URL below -
+
+url <- "https://australiademo.opendatasoft.com/explore/dataset/live-traffic-cameras/download/?format=csv&timezone=Asia/Shanghai&lang=en&use_labels_for_header=true&csv_separator=%3B"
+cameraData <- read.csv(url, sep=";")
+```
+
+```{r preprocess}
+# Extract camera position data from the master file.
+
+cameraPos <- data.frame(matrix(unlist(strsplit(cameraData$Geo.Point,",")), ncol=2, byrow=T))
+cameraPos <- rename(cameraPos, lat = X1, lng = X2)
+cameraPos$lat <- as.numeric(cameraPos$lat)
+cameraPos$lng <- as.numeric(cameraPos$lng)
+
+# Create camera tag data
+cameraTag <- paste("<a href='", cameraData$href, "'>",
+                   cameraData$title, "</a>", sep="")
+
+# Create camera icon
+
+cameraIcon <- makeIcon(
+  iconUrl = "http://simpleicon.com/wp-content/uploads/camera-64x64.png",
+  iconWidth = 32, iconHeight = 32,
+  iconAnchorX = 16, iconAnchorY = 20
+)
+```
+
+```{r map_generation}
+# Create interactive map with Leaflet
+
+cameraMap <- leaflet(cameraPos) %>%
+  addTiles %>%
+  addMarkers(popup = cameraTag, icon = cameraIcon, clusterOptions = markerClusterOptions())
+cameraMap
+```
